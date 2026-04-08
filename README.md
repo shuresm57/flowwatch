@@ -1,5 +1,7 @@
 # Flowwatch
 
+> **Work in Progress** — This project is under active development and will be updated sporadically.
+
 This is a network intrusion detection API that classifies network traffic flows, via a trained XGBoost model from the CICIDS2017 dataset.
 
 The model is saved as an .onnx file, which is then loaded into the Node.js app which acts looks at the incoming traffic and determines whether it could be labeled as intrusive or not, based on the trained model.
