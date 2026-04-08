@@ -1,29 +1,29 @@
-const express = require("express");
-const { loadModel, predict, getFeatureNames, getLabelNames } = require("./model");
-const { parseCSVRows } = require("./parse");
+const express = require('express');
+const { loadModel, predict, getFeatureNames, getLabelNames } = require('./model');
+const { parseCSVRows } = require('./parse');
 
 const app = express();
 app.use(express.json());
-app.use(express.text({ type: "text/csv" }));
+app.use(express.text({ type: 'text/csv' }));
 
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
 });
 
-app.get("/features", (_req, res) => {
+app.get('/features', (_req, res) => {
   res.json({
     features: getFeatureNames(),
-    labels: getLabelNames(),
+    labels: getLabelNames()
   });
 });
 
-app.post("/analyze", async (req, res) => {
+app.post('/analyze', async (req, res) => {
   const { features } = req.body;
   const expected = getFeatureNames().length;
 
   if (!Array.isArray(features) || features.length !== expected) {
     res.status(400).json({
-      error: `Expected ${expected} features, got ${Array.isArray(features) ? features.length : "none"}`,
+      error: `Expected ${expected} features, got ${Array.isArray(features) ? features.length : 'none'}`
     });
     return;
   }
@@ -32,9 +32,9 @@ app.post("/analyze", async (req, res) => {
   res.json(result);
 });
 
-app.post("/analyze/csv", async (req, res) => {
-  if (typeof req.body !== "string" || !req.body.trim()) {
-    res.status(400).json({ error: "Send CSV data with Content-Type: text/csv" });
+app.post('/analyze/csv', async (req, res) => {
+  if (typeof req.body !== 'string' || !req.body.trim()) {
+    res.status(400).json({ error: 'Send CSV data with Content-Type: text/csv' });
     return;
   }
 
@@ -52,6 +52,6 @@ loadModel()
     });
   })
   .catch((err) => {
-    console.error("Failed to load model:", err.message);
+    console.error('Failed to load model:', err.message);
     process.exit(1);
   });
