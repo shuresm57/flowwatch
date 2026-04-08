@@ -2,10 +2,10 @@
   "name": "flowwatch",
   "version": "0.1.0",
   "description": "Network intrusion detection API powered by XGBoost",
-  "main": "index.ts",
+  "main": "index.js",
   "scripts": {
-    "dev": "tsx watch index.ts",
-    "start": "tsx index.ts"
+    "dev": "node --watch index.js",
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",
@@ -13,11 +13,5 @@
   "dependencies": {
     "express": "^5.2.1",
     "onnxruntime-node": "^1.24.3"
-  },
-  "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.5.2",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
   }
 }

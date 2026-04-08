@@ -1,18 +1,13 @@
-import * as ort from "onnxruntime-node";
-import { readFileSync } from "fs";
-import { join } from "path";
+const ort = require("onnxruntime-node");
+const { readFileSync } = require("fs");
+const { join } = require("path");
 
 const MODEL_DIR = join(__dirname, "..", "model");
 
-interface Metadata {
-  feature_names: string[];
-  label_names: Record<string, string>;
-}
+let session;
+let metadata;
 
-let session: ort.InferenceSession;
-let metadata: Metadata;
-
-export async function loadModel() {
+async function loadModel() {
   metadata = JSON.parse(
     readFileSync(join(MODEL_DIR, "metadata.json"), "utf-8")
   );
@@ -24,15 +19,15 @@ export async function loadModel() {
   );
 }
 
-export function getFeatureNames(): string[] {
+function getFeatureNames() {
   return metadata.feature_names;
 }
 
-export function getLabelNames(): Record<string, string> {
+function getLabelNames() {
   return metadata.label_names;
 }
 
-export async function predict(features: number[]) {
+async function predict(features) {
   const input = new ort.Tensor(
     "float32",
     Float32Array.from(features),
@@ -41,9 +36,8 @@ export async function predict(features: number[]) {
 
   const results = await session.run({ input });
 
-  const label = (results["label"] as ort.Tensor).data[0] as number;
-  const probabilities = results["probabilities"] as ort.Tensor;
-  const probs = Array.from(probabilities.data as Float32Array);
+  const label = results["label"].data[0];
+  const probs = Array.from(results["probabilities"].data);
 
   const confidence = probs[label];
   const labelName = metadata.label_names[String(label)] ?? `unknown_${label}`;
@@ -55,8 +49,10 @@ export async function predict(features: number[]) {
     probabilities: Object.fromEntries(
       probs.map((p, i) => [
         metadata.label_names[String(i)] ?? `class_${i}`,
-        Math.round((p as number) * 10000) / 10000,
+        Math.round(p * 10000) / 10000,
       ])
     ),
   };
 }
+
+module.exports = { loadModel, predict, getFeatureNames, getLabelNames };

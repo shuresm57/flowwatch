@@ -1,18 +1,16 @@
-import { getFeatureNames } from "./model";
+const { getFeatureNames } = require("./model");
 
-export function parseCSVRows(csv: string): number[][] {
+function parseCSVRows(csv) {
   const lines = csv.trim().split("\n");
   if (lines.length === 0) return [];
 
   const featureNames = getFeatureNames();
   const firstLine = lines[0].split(",");
 
-  // Check if first line is a header (non-numeric first value)
   const hasHeader = isNaN(Number(firstLine[0]));
   const dataLines = hasHeader ? lines.slice(1) : lines;
 
   if (hasHeader) {
-    // Map columns by header name to expected feature order
     const headerMap = new Map(firstLine.map((h, i) => [h.trim(), i]));
 
     return dataLines.map((line) => {
@@ -25,7 +23,6 @@ export function parseCSVRows(csv: string): number[][] {
     });
   }
 
-  // No header — assume columns are in the correct order
   return dataLines.map((line) =>
     line
       .split(",")
@@ -33,3 +30,5 @@ export function parseCSVRows(csv: string): number[][] {
       .map((v) => Number(v) || 0)
   );
 }
+
+module.exports = { parseCSVRows };
