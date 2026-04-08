@@ -1,6 +1,5 @@
 data/
 .venv/
-.claude/
 model/
 src/node_modules/
 src/dist/
