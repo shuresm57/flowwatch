@@ -4,7 +4,7 @@
 
 A minimal Node.js/Express API that serves a trained XGBoost model (exported to ONNX) for real-time network intrusion detection. It classifies network flows into 15 categories (benign + 14 attack types) using 78 numerical features.
 
-**Endpoints today:**
+**Endpoints:**
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Liveness check |
@@ -12,357 +12,103 @@ A minimal Node.js/Express API that serves a trained XGBoost model (exported to O
 | POST | `/analyze` | Classify a single flow (JSON) |
 | POST | `/analyze/csv` | Batch-classify flows from CSV data |
 
-**Goal:** Rewrite the API in Rust (Axum + `ort`) to produce a single self-contained binary with lower memory usage, no runtime dependency, and the same four endpoints. The trained ONNX model file is reused as-is — no retraining needed.
-
 ---
 
-## Phase 1 — Rust rewrite
+## Phase 1 — Hardening
 
-### Step 1 — Project setup
+### 1. Input validation
 
-Create a new Rust project alongside the existing `src/` directory:
+Add a check before running inference so bad requests get a clear 400 error (`src/index.js`):
 
+```js
+function validateFeatures(features) {
+  if (!Array.isArray(features)) return 'features must be an array';
+  if (features.length !== 78) return `expected 78 features, got ${features.length}`;
+  if (features.some(f => typeof f !== 'number' || !isFinite(f)))
+    return 'all features must be finite numbers';
+  return null;
+}
 ```
-flowwatch/
-├── src/          ← keep for reference during rewrite
-├── server/       ← new Rust project
-│   ├── Cargo.toml
-│   └── src/
-│       └── main.rs
-├── model/
-│   ├── flowwatch.onnx
-│   └── metadata.json
-└── training/
-```
+
+### 2. Rate limiting
 
 ```bash
-cargo new server
-cd server
+npm install express-rate-limit
 ```
 
-`server/Cargo.toml`:
-```toml
-[package]
-name = "flowwatch"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-axum = "0.7"
-tokio = { version = "1", features = ["full"] }
-ort = { version = "2", features = ["load-dynamic"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-appender = "0.2"
-tower-http = { version = "0.5", features = ["trace"] }
+```js
+import rateLimit from 'express-rate-limit';
+app.use('/analyze', rateLimit({ windowMs: 60_000, max: 120 }));
 ```
 
 ---
 
-### Step 2 — Load the model and metadata at startup
+## Phase 2 — Logging to file
 
-```rust
-// server/src/main.rs
-use ort::{Environment, Session, SessionBuilder};
-use serde::Deserialize;
-use std::{fs, sync::Arc};
-
-#[derive(Deserialize)]
-struct Metadata {
-    features: Vec<String>,
-    labels: Vec<String>,
-}
-
-struct AppState {
-    session: Session,
-    metadata: Metadata,
-}
-```
-
-Load both files once at startup and share via `Arc<AppState>`:
-
-```rust
-let metadata: Metadata = serde_json::from_str(
-    &fs::read_to_string("../model/metadata.json").unwrap()
-).unwrap();
-
-let session = SessionBuilder::new(&Environment::builder().build().unwrap())
-    .unwrap()
-    .with_model_from_file("../model/flowwatch.onnx")
-    .unwrap();
-
-let state = Arc::new(AppState { session, metadata });
-```
-
----
-
-### Step 3 — Implement the four endpoints
-
-**`GET /health`**
-```rust
-async fn health() -> impl IntoResponse {
-    Json(serde_json::json!({ "status": "ok" }))
-}
-```
-
-**`GET /features`**
-```rust
-async fn features(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(serde_json::json!({
-        "features": state.metadata.features,
-        "labels": state.metadata.labels,
-    }))
-}
-```
-
-**`POST /analyze`**
-```rust
-#[derive(Deserialize)]
-struct AnalyzeRequest {
-    features: Vec<f32>,
-}
-
-async fn analyze(
-    State(state): State<Arc<AppState>>,
-    Json(body): Json<AnalyzeRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if body.features.len() != 78 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("expected 78 features, got {}", body.features.len()),
-        ));
-    }
-    // run inference, decode probabilities, return JSON
-}
-```
-
-Input validation happens automatically — Axum returns 422 if the JSON doesn't match the struct, and the length check covers the 78-feature requirement.
-
-**`POST /analyze/csv`**
-
-Parse the CSV body line by line using the `csv` crate, run each row through the same inference path as `/analyze`, and return a JSON array of results.
-
-```toml
-csv = "1"
-```
-
----
-
-### Step 4 — Run inference with `ort`
-
-```rust
-use ndarray::Array2;
-use ort::inputs;
-
-let input = Array2::from_shape_vec((1, 78), body.features).unwrap();
-let outputs = state.session.run(inputs!["input" => input.view()].unwrap()).unwrap();
-let probabilities: Vec<f32> = outputs["probabilities"]
-    .try_extract_tensor::<f32>()
-    .unwrap()
-    .iter()
-    .cloned()
-    .collect();
-
-let label_id = probabilities
-    .iter()
-    .enumerate()
-    .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-    .map(|(i, _)| i)
-    .unwrap();
-
-let label = &state.metadata.labels[label_id];
-let confidence = probabilities[label_id];
-```
-
-Add `ndarray` to `Cargo.toml`:
-```toml
-ndarray = "0.15"
-```
-
----
-
-### Step 5 — Wire up the router
-
-```rust
-#[tokio::main]
-async fn main() {
-    // logging setup (see Phase 2)
-
-    let state = Arc::new(/* load model and metadata */);
-
-    let app = Router::new()
-        .route("/health", get(health))
-        .route("/features", get(features))
-        .route("/analyze", post(analyze))
-        .route("/analyze/csv", post(analyze_csv))
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
-
-    let port = std::env::var("PORT").unwrap_or("3000".into());
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
-        .await
-        .unwrap();
-
-    tracing::info!("listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, app).await.unwrap();
-}
-```
-
----
-
-### Step 6 — Build for release
-
-```bash
-cd server
-cargo build --release
-# binary at: server/target/release/flowwatch
-```
-
-The output is a single statically-linked binary (~5–15 MB). No Node.js, no npm, nothing else needed on the server.
-
----
-
-## Phase 2 — Structured logging to file
-
-Use `tracing` + `tracing-appender` to write timestamped JSON logs to a rotating file. Every request and every prediction gets a log entry.
-
-### Setup in `main.rs`
-
-```rust
-use tracing_appender::rolling;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-
-fn init_logging() {
-    // Rotate log files daily: logs/flowwatch.2024-06-01.log
-    let file_appender = rolling::daily("/var/log/flowwatch", "flowwatch.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-    tracing_subscriber::registry()
-        .with(EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
-        .with(
-            fmt::layer()
-                .json()                  // structured JSON lines
-                .with_writer(non_blocking)
-        )
-        .with(
-            fmt::layer()                 // human-readable to stdout/journald
-                .with_writer(std::io::stdout)
-        )
-        .init();
-}
-```
-
-Call `init_logging()` as the first line of `main()`. The `_guard` must be kept alive for the duration of the program — assign it to a variable in `main`, never drop it early.
-
-### What gets logged
-
-| Event | Fields logged |
-|-------|--------------|
-| Server start | port, feature count, label count |
-| Each request | method, path, status code, latency (from `TraceLayer`) |
-| Each prediction | timestamp, client IP, label, confidence, label_id |
-| Bad request | client IP, error reason |
-| Startup error | error message |
-
-**Instrument the analyze handler:**
-```rust
-tracing::info!(
-    label = %label,
-    confidence = confidence,
-    label_id = label_id,
-    "prediction"
-);
-```
-
-### Log file location and permissions
-
-```bash
-sudo mkdir -p /var/log/flowwatch
-sudo chown flowwatch:flowwatch /var/log/flowwatch
-```
-
-Add `ReadWritePaths=/var/log/flowwatch` to the systemd unit file (see deployment section).
+Write a plain human-readable line to a log file for every request. No extra packages needed — just the built-in `fs` module.
 
 ### What a log line looks like
 
-```json
-{"timestamp":"2024-06-01T14:23:11.042Z","level":"INFO","fields":{"label":"DDoS","confidence":0.9987,"label_id":2},"target":"flowwatch","message":"prediction"}
-{"timestamp":"2024-06-01T14:23:11.001Z","level":"INFO","fields":{"method":"POST","path":"/analyze","status":200,"latency_ms":3},"target":"flowwatch","message":"request"}
+```
+2024-06-01 14:23:11 | INFO  | POST /analyze     | 200 | 3ms  | DDoS (99.87%)
+2024-06-01 14:23:12 | INFO  | GET  /health      | 200 | 0ms  |
+2024-06-01 14:23:15 | WARN  | POST /analyze     | 400 | 1ms  | expected 78 features, got 5
+2024-06-01 08:00:00 | INFO  | server started on port 3000
+```
+
+### Logger (`src/logger.js`)
+
+```js
+import { appendFileSync } from 'node:fs';
+
+const LOG_PATH = process.env.LOG_PATH ?? 'flowwatch.log';
+
+function log(level, message) {
+  const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const line = `${ts} | ${level.padEnd(5)} | ${message}\n`;
+  process.stdout.write(line);
+  appendFileSync(LOG_PATH, line);
+}
+
+export const logger = {
+  info:  (msg) => log('INFO',  msg),
+  warn:  (msg) => log('WARN',  msg),
+  error: (msg) => log('ERROR', msg),
+};
+```
+
+### Using the logger in `index.js`
+
+```js
+import { logger } from './logger.js';
+
+// on startup
+logger.info(`server started on port ${port}`);
+
+// in /analyze handler
+const start = Date.now();
+// ... run inference ...
+const ms = Date.now() - start;
+logger.info(`POST /analyze     | 200 | ${ms}ms | ${label} (${(confidence * 100).toFixed(2)}%)`);
+
+// on bad input
+logger.warn(`POST /analyze     | 400 | ${ms}ms | ${reason}`);
 ```
 
 ### Querying logs on the server
 
-Because each line is valid JSON, you can filter with `jq`:
-
 ```bash
-# All DDoS predictions today
-cat /var/log/flowwatch/flowwatch.log | jq 'select(.fields.label == "DDoS")'
+# Watch live
+tail -f flowwatch.log
 
-# All non-BENIGN predictions
-cat /var/log/flowwatch/flowwatch.log | jq 'select(.fields.label != null and .fields.label != "BENIGN")'
+# All attack detections
+grep -v BENIGN flowwatch.log
 
-# Request count by status code
-cat /var/log/flowwatch/flowwatch.log | jq -r '.fields.status // empty' | sort | uniq -c
+# All warnings and errors
+grep -E "WARN|ERROR" flowwatch.log
 
-# Slowest requests (latency > 50ms)
-cat /var/log/flowwatch/flowwatch.log | jq 'select(.fields.latency_ms > 50)'
-```
-
-journald also captures stdout, so `journalctl -u flowwatch` still works alongside the file logs.
-
----
-
-## Phase 3 — Rate limiting
-
-Axum has no built-in rate limiter, but `tower-http` and `tower` provide a `RateLimit` layer:
-
-```toml
-tower = { version = "0.4", features = ["limit"] }
-```
-
-```rust
-use tower::limit::RateLimitLayer;
-use std::time::Duration;
-
-let app = Router::new()
-    // ...
-    .layer(RateLimitLayer::new(120, Duration::from_secs(60))); // 120 req/min globally
-```
-
-For per-IP limiting, use the `governor` crate which is the standard Rust approach:
-
-```toml
-governor = "0.6"
-tower_governor = "0.3"
-```
-
----
-
-## Phase 4 — Metrics endpoint
-
-Add an in-memory counter using `std::sync::atomic`:
-
-```rust
-use std::sync::atomic::{AtomicU64, Ordering};
-
-struct Metrics {
-    total_requests: AtomicU64,
-    predictions_by_label: std::sync::Mutex<std::collections::HashMap<String, u64>>,
-}
-```
-
-Expose at `GET /metrics`:
-
-```rust
-async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let counts = state.metrics.predictions_by_label.lock().unwrap();
-    Json(serde_json::json!({
-        "total_requests": state.metrics.total_requests.load(Ordering::Relaxed),
-        "predictions": *counts,
-    }))
-}
+# Requests from today
+grep "$(date '+%Y-%m-%d')" flowwatch.log
 ```
 
 ---
@@ -371,30 +117,24 @@ async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
 ### Prerequisites
 
-1. A Linux server (Ubuntu 22.04+ or Debian 12+)
-2. The compiled binary copied to `/opt/flowwatch/flowwatch`
-3. The model files at `/opt/flowwatch/model/`
+1. Linux server with Node.js 20+ (`node --version`)
+2. Project cloned to `/opt/flowwatch`
+3. Model files at `/opt/flowwatch/model/`
 
-No Node.js, no npm, no runtime required on the server.
-
-### Step 1 — Create a dedicated system user
+### Step 1 — Create a system user
 
 ```bash
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin flowwatch
-sudo mkdir -p /opt/flowwatch/model
 sudo chown -R flowwatch:flowwatch /opt/flowwatch
-sudo mkdir -p /var/log/flowwatch
-sudo chown flowwatch:flowwatch /var/log/flowwatch
 ```
 
-### Step 2 — Copy files to the server
+### Step 2 — Install dependencies
 
 ```bash
-scp server/target/release/flowwatch user@server:/opt/flowwatch/
-scp model/flowwatch.onnx model/metadata.json user@server:/opt/flowwatch/model/
+cd /opt/flowwatch/src && sudo -u flowwatch npm ci --omit=dev
 ```
 
-### Step 3 — Create an environment file
+### Step 3 — Environment file
 
 ```bash
 sudo nano /etc/flowwatch.env
@@ -402,15 +142,18 @@ sudo nano /etc/flowwatch.env
 
 ```ini
 PORT=3000
-RUST_LOG=info
+NODE_ENV=production
+LOG_PATH=/var/log/flowwatch/flowwatch.log
 ```
 
 ```bash
 sudo chmod 640 /etc/flowwatch.env
 sudo chown root:flowwatch /etc/flowwatch.env
+sudo mkdir -p /var/log/flowwatch
+sudo chown flowwatch:flowwatch /var/log/flowwatch
 ```
 
-### Step 4 — Create the systemd unit file
+### Step 4 — systemd unit file
 
 ```bash
 sudo nano /etc/systemd/system/flowwatch.service
@@ -424,9 +167,9 @@ After=network.target
 [Service]
 Type=simple
 User=flowwatch
-WorkingDirectory=/opt/flowwatch
+WorkingDirectory=/opt/flowwatch/src
 EnvironmentFile=/etc/flowwatch.env
-ExecStart=/opt/flowwatch/flowwatch
+ExecStart=/usr/bin/node index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -437,7 +180,7 @@ SyslogIdentifier=flowwatch
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/flowwatch
+ReadWritePaths=/opt/flowwatch/src
 ReadWritePaths=/var/log/flowwatch
 
 [Install]
@@ -455,26 +198,19 @@ sudo systemctl status flowwatch
 ### Step 6 — View logs
 
 ```bash
-# Live journal output
-sudo journalctl -u flowwatch -f
-
-# Query the structured log file
-cat /var/log/flowwatch/flowwatch.log | jq .
+sudo journalctl -u flowwatch -f        # live journal output
+tail -f /var/log/flowwatch/flowwatch.log   # plain log file
 ```
-
----
 
 ### Optional: Nginx reverse proxy
 
 ```nginx
-# /etc/nginx/sites-available/flowwatch
 server {
     listen 80;
     server_name your-server-ip-or-domain;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
 }
@@ -489,8 +225,6 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ## CI/CD — GitHub Actions
 
-Two jobs in sequence: build & test on every push, deploy to the server on merge to `main`.
-
 `.github/workflows/ci-cd.yml`
 
 ```yaml
@@ -502,78 +236,101 @@ on:
   pull_request:
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
         with:
-          workspaces: server
-
-      - name: Build release binary
-        run: cargo build --release
-        working-directory: server
-
-      - name: Run tests
-        run: cargo test
-        working-directory: server
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: flowwatch-binary
-          path: server/target/release/flowwatch
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+      - run: npm ci
+        working-directory: src
+      - run: node --test test.js
+        working-directory: src
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build
+    needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
-      - name: Download binary
-        uses: actions/download-artifact@v4
-        with:
-          name: flowwatch-binary
-
-      - name: Copy binary to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          source: flowwatch
-          target: /opt/flowwatch/
-
-      - name: Restart service
+      - name: Deploy to server
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            chmod +x /opt/flowwatch/flowwatch
+            cd /opt/flowwatch
+            git pull origin main
+            cd src && npm ci --omit=dev
             sudo systemctl restart flowwatch
-            sudo systemctl is-active flowwatch
 ```
 
 **Required GitHub secrets:**
 
 | Secret | Value |
 |--------|-------|
-| `SERVER_HOST` | IP address or hostname of the Linux server |
-| `SERVER_USER` | SSH user with write access to `/opt/flowwatch` |
-| `SERVER_SSH_KEY` | Private SSH key whose public half is in `~/.ssh/authorized_keys` on the server |
+| `SERVER_HOST` | Server IP or hostname |
+| `SERVER_USER` | SSH username |
+| `SERVER_SSH_KEY` | Private SSH key |
 
-Passwordless sudo for restart only (`/etc/sudoers.d/flowwatch-deploy`):
+Passwordless sudo for restart (`/etc/sudoers.d/flowwatch-deploy`):
 ```
-deploy ALL=(ALL) NOPASSWD: /bin/systemctl restart flowwatch, /bin/systemctl is-active flowwatch
+deploy ALL=(ALL) NOPASSWD: /bin/systemctl restart flowwatch
 ```
 
-Note: the ONNX model is not re-uploaded on every deploy — only the binary changes. Update the model separately when you retrain.
+---
+
+## DNN comparison (training)
+
+Train a simple Keras DNN on the same cleaned dataset and compare it against XGBoost. Even if XGBoost wins, this demonstrates you understand both approaches and can answer exam questions about neural networks directly from your own project.
+
+Add a new notebook: `training/dnn_comparison.ipynb`
+
+### Model
+
+```python
+from tensorflow import keras
+
+model = keras.Sequential([
+    keras.layers.Dense(128, activation='relu', input_shape=(78,)),
+    keras.layers.Dense(64, activation='relu'),
+    keras.layers.Dense(n_classes, activation='softmax')
+])
+
+model.compile(
+    optimizer=keras.optimizers.Adam(learning_rate=0.001),
+    loss='sparse_categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+history = model.fit(
+    X_train, y_train,
+    epochs=20,
+    batch_size=1024,
+    validation_split=0.1,
+    class_weight=class_weights  # same weights used for XGBoost
+)
+```
+
+### What to record and compare
+
+| Metric | XGBoost | DNN |
+|--------|---------|-----|
+| Accuracy | 99.79% | ? |
+| Macro F1 | 0.8591 | ? |
+| ROC AUC | 0.999 | ? |
+| Training time | ? min | ? min |
+| Inference time | ? ms/req | ? ms/req |
+
+### Why XGBoost wins on tabular data (the answer you need ready)
+
+- Features are already engineered — no raw signal for convolutions or embeddings to extract
+- XGBoost handles class imbalance better via sample weights per tree split
+- Fewer hyperparameters to tune, faster training on CPU
+- DNNs need more data and careful regularization to match gradient boosting on structured tabular tasks
 
 ---
 
@@ -581,12 +338,9 @@ Note: the ONNX model is not re-uploaded on every deploy — only the binary chan
 
 | Priority | Item | Effort |
 |----------|------|--------|
-| 1 | Rust project setup + model loading | 2 hours |
-| 2 | `/health` and `/features` endpoints | 30 min |
-| 3 | `/analyze` endpoint + inference | 2 hours |
-| 4 | `/analyze/csv` endpoint | 1 hour |
-| 5 | Structured file logging (tracing-appender) | 1 hour |
-| 6 | systemctl deployment | 1 hour |
-| 7 | CI/CD (GitHub Actions) | 1 hour |
-| 8 | Rate limiting | 30 min |
-| 9 | Metrics endpoint | 1 hour |
+| 1 | Input validation | 30 min |
+| 2 | Logging to file | 30 min |
+| 3 | DNN comparison notebook | 2 hours |
+| 4 | systemctl deployment | 1 hour |
+| 5 | Rate limiting | 15 min |
+| 6 | CI/CD (GitHub Actions) | 1 hour |
