@@ -66,16 +66,10 @@ cd src && npm install && npm start
 ./demo.sh
 ```
 
+The showcase only takes inputs from the CSV at this point, for testing purposes.
+
 This showcases the model detecting real attacks:
 - **Benign traffic** → predicts BENIGN
 - **DDoS attacks** → predicts DDoS
 - **PortScan attacks** → predicts PortScan
 - **Web attacks** → predicts Web Attack
-
-Or manually test endpoints:
-```bash
-curl http://localhost:3000/health
-curl http://localhost:3000/features
-head -n 10 data/cleaned.csv | curl -X POST http://localhost:3000/analyze/csv -H "Content-Type: text/csv" -d @-
-```
-
