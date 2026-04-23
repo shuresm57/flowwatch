@@ -3,3 +3,8 @@ data/
 model/
 src/node_modules/
 src/dist/
+
+*.md
+
+myvenv/
+.vscode/
