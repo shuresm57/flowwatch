@@ -6,6 +6,9 @@ This is a network intrusion detection API that classifies network traffic flows,
 
 The model is saved as an .onnx file, which is then loaded into the Node.js app which acts looks at the incoming traffic and determines whether it could be labeled as intrusive or not, based on the trained model.
 
+This project is for the Machine Learning elective exam on EK - although it is centered
+around Machine Learning, I also take inspiration from my other electives: **Node.js and DevOps.**
+
 ## Overview
 
 ```bash
@@ -50,4 +53,29 @@ The data the model has been trained on was downloaded from [Kaggle.](https://www
 | `GET` | `/features` | List expected features and label names |
 | `POST` | `/analyze` | Classify a single network flow (JSON body with `features` array) |
 | `POST` | `/analyze/csv` | Classify multiple flows from CSV (`Content-Type: text/csv`) |
+
+## Demo
+
+**Terminal 1:** Start the API
+```bash
+cd src && npm install && npm start
+```
+
+**Terminal 2:** Run the demo (from repo root)
+```bash
+./demo.sh
+```
+
+This showcases the model detecting real attacks:
+- **Benign traffic** → predicts BENIGN
+- **DDoS attacks** → predicts DDoS
+- **PortScan attacks** → predicts PortScan
+- **Web attacks** → predicts Web Attack
+
+Or manually test endpoints:
+```bash
+curl http://localhost:3000/health
+curl http://localhost:3000/features
+head -n 10 data/cleaned.csv | curl -X POST http://localhost:3000/analyze/csv -H "Content-Type: text/csv" -d @-
+```
 
