@@ -36,16 +36,16 @@ async function predict (features) {
 
   const results = await session.run({ input });
 
-  const label = results.label.data[0];
+  // ONNX returns label as int64 (BigInt); convert to Number for JSON safety.
+  const label = Number(results.label.data[0]);
   const probs = Array.from(results.probabilities.data);
 
-  const confidence = probs[label];
   const labelName = metadata.label_names[String(label)] ?? `unknown_${label}`;
 
   return {
     label: labelName,
     label_id: label,
-    confidence: Math.round(confidence * 10000) / 10000,
+    confidence: Math.round(probs[label] * 10000) / 10000,
     probabilities: Object.fromEntries(
       probs.map((p, i) => [
         metadata.label_names[String(i)] ?? `class_${i}`,
