@@ -1,6 +1,6 @@
-const { getFeatureNames } = require('./model');
+import getFeatureNames from './model';
 
-function parseCSVRows (csv) {
+export function parseCSVRows (csv) {
   const lines = csv.trim().split('\n');
   if (lines.length === 0) return [];
 
@@ -30,5 +30,3 @@ function parseCSVRows (csv) {
       .map((v) => Number(v) || 0)
   );
 }
-
-module.exports = { parseCSVRows };
