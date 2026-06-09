@@ -1,3 +1,5 @@
+by Valdemar Støvring Storgaard & Malthe Yde Tiufkær
+
 # Flowwatch
 
 Network intrusion detection API powered by XGBoost. Classifies network traffic flows as benign or malicious using a trained model from the CICIDS2017 dataset. The model is exported to ONNX and integrated into a Node.js API for real-time predictions.
