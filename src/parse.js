@@ -1,4 +1,4 @@
-import getFeatureNames from './model';
+import { getFeatureNames } from './model.js';
 
 export function parseCSVRows (csv) {
   const lines = csv.trim().split('\n');

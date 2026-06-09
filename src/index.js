@@ -1,6 +1,6 @@
 import express from 'express';
-import { loadModel, predict, getFeatureNames, getLabelNames } from './model';
-import parseCSVRows from './parse';
+import { loadModel, predict, getFeatureNames, getLabelNames } from './model.js';
+import { parseCSVRows } from './parse.js';
 
 const app = express();
 app.use(express.json());

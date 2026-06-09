@@ -1,7 +1,9 @@
 import ort from 'onnxruntime-node';
-import readFileSync from 'fs';
-import join from 'path';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODEL_DIR = join(__dirname, '..', 'model');
 
 let session;
