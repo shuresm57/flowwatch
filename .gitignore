@@ -5,3 +5,4 @@ src/node_modules/
 src/dist/
 myvenv/
 .vscode/
+.env
