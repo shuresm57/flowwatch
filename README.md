@@ -31,9 +31,8 @@ demo.sh            ─── pulls cleaned.csv, samples random flows, validates 
 
 ## Quick Start
 
-Copy `.env.example` to `.env` and fill in your HuggingFace token, then:
-
 ```bash
+cp .env.example .env   # then fill in your HuggingFace token
 cd src && npm install && npm start
 ```
 

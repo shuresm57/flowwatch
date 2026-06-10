@@ -3,6 +3,9 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+const envFile = join(dirname(fileURLToPath(import.meta.url)), '..', '.env');
+if (existsSync(envFile)) process.loadEnvFile(envFile);
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODEL_DIR = join(__dirname, '..', 'model');
 

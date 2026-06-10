@@ -4,9 +4,9 @@
   "description": "Network intrusion detection API powered by XGBoost",
   "main": "index.js",
   "scripts": {
-    "dev": "node --env-file=../.env --watch index.js",
-    "start": "node --env-file=../.env index.js",
-    "fetch-model": "node --env-file=../.env fetch-model.js"
+    "dev": "node --watch index.js",
+    "start": "node index.js",
+    "fetch-model": "node fetch-model.js"
   },
   "keywords": [],
   "author": "",

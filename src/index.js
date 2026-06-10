@@ -1,4 +1,11 @@
+import { existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const envFile = join(__dirname, '..', '.env');
+if (existsSync(envFile)) process.loadEnvFile(envFile);
 import { loadModel, predict, getFeatureNames, getLabelNames } from './model.js';
 import { parseCSVRows } from './parse.js';
 
