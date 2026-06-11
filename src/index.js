@@ -10,8 +10,10 @@ import { loadModel, predict, getFeatureNames, getLabelNames } from './model.js';
 import { parseCSVRows } from './parse.js';
 
 const app = express();
-app.use(express.json());
-app.use(express.text({ type: 'text/csv' }));
+// Batch CSV uploads easily exceed body-parser's 100kb default, so raise the
+// limit (e.g. 1000 flows × 78 features is ~230kb).
+app.use(express.json({ limit: '50mb' }));
+app.use(express.text({ type: 'text/csv', limit: '50mb' }));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });

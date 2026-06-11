@@ -26,7 +26,7 @@ SCRIPT_DIR="$(dirname "$0")"
 #   HF_REVISION      Branch/revision to pull (default: main)
 #   HF_TOKEN         Token for private dataset repos
 #
-# Requires: curl, jq, shuf (coreutils)
+# Requires: curl, jq, awk
 # Start the API first: cd src && npm start
 
 API="http://localhost:3000"
@@ -84,12 +84,21 @@ echo "==========================================================================
 
 # Keep the header row so the API can map columns by feature name.
 HEADER=$(head -n 1 "$TMPFILE")
-if $ATTACKS_ONLY; then
-  # Label is the last column; 0 = BENIGN — exclude those rows.
-  SAMPLED=$(tail -n +2 "$TMPFILE" | awk -F',' '{gsub(/[[:space:]]/, "", $NF); if ($NF != "0") print}' | shuf -n "$SAMPLES")
-else
-  SAMPLED=$(tail -n +2 "$TMPFILE" | shuf -n "$SAMPLES")
-fi
+
+# Reservoir-sample SAMPLES rows in a single pass with awk. macOS has no `shuf`,
+# and awk avoids shuffling all ~2.8M rows of the 827MB file. When --attacks-only
+# is set, BENIGN rows (Label 0, the last column) are skipped before sampling.
+SAMPLED=$(tail -n +2 "$TMPFILE" | awk -F',' \
+  -v k="$SAMPLES" -v attacks="$ATTACKS_ONLY" -v seed="$$$RANDOM" '
+  BEGIN { srand(seed) }
+  {
+    if (attacks == "true") { lab = $NF; gsub(/[[:space:]]/, "", lab); if (lab == "0") next }
+    n++
+    if (n <= k) { reservoir[n] = $0 }
+    else { r = int(rand() * n) + 1; if (r <= k) reservoir[r] = $0 }
+  }
+  END { for (i = 1; i <= k && i <= n; i++) print reservoir[i] }
+')
 
 # Send header + sampled rows to the batch classification endpoint.
 # --data-binary preserves newlines (unlike -d which can mangle the body).

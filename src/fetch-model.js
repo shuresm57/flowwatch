@@ -1,4 +1,3 @@
-import { downloadFile } from '@huggingface/hub';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -12,8 +11,8 @@ const MODEL_DIR = join(__dirname, '..', 'model');
 // Repo and revision are configurable via env so the same code can point at a
 // private/staging repo without edits. Defaults are placeholders — replace them
 // (or set the env vars) with the real HuggingFace model repo.
-const HF_MODEL_REPO = process.env.HF_MODEL_REPO || 'valthe/flowwatch';
-const HF_MODEL_REVISION = process.env.HF_MODEL_REVISION || 'main';
+const HF_MODEL_REPO = process.env.HF_MODEL_REPO;
+const HF_MODEL_REVISION = process.env.HF_MODEL_REVISION;
 const HF_TOKEN = process.env.HF_TOKEN; // optional; only needed for private repos
 
 // Files the API needs at runtime (see model.js): the ONNX graph and the
@@ -51,6 +50,9 @@ async function downloadOne (path) {
 // Ensure flowwatch.onnx and metadata.json exist locally, downloading any that
 // are missing from the HuggingFace model repo. Already-present files are kept
 // (cache), so this is cheap to call on every startup.
+
+import { downloadFile } from '@huggingface/hub';
+
 export async function ensureModel () {
   const missing = MODEL_FILES.filter(
     (f) => !existsSync(join(MODEL_DIR, f))
