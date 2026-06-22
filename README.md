@@ -45,6 +45,22 @@ Server runs on `http://localhost:3000`. Run the demo (from repo root):
 ./demo.sh
 ```
 
+### Run with Docker
+
+A container image is published to GitHub Container Registry on every push to
+`main`: `ghcr.io/shuresm57/flowwatch`. Run it with Compose (from repo root):
+
+```bash
+docker compose up -d        # pulls the image and starts the API on :3000
+docker compose logs -f      # wait for "FlowWatch listening on port 3000"
+```
+
+On first start the container downloads the model from HuggingFace into the
+`flowwatch-model` volume, so subsequent restarts skip the download. HuggingFace
+config is read from `.env` (or the environment) — see the table below; only
+private repos need `HF_TOKEN`. Build the image locally instead of pulling with
+`docker build -t flowwatch .`.
+
 ### Configuration
 
 Set these in `.env` (gitignored) or export them in your shell:

@@ -1,0 +1,17 @@
+services:
+  flowwatch:
+    image: ghcr.io/shuresm57/flowwatch:latest
+    pull_policy: always
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      HF_MODEL_REPO: ${HF_MODEL_REPO:-valthe/flowwatch}
+      HF_MODEL_REVISION: ${HF_MODEL_REVISION:-main}
+      HF_TOKEN: ${HF_TOKEN:-}          # only needed if the HF repo is private
+    volumes:
+      - flowwatch-model:/app/model      # cache so the model downloads only once
+    restart: unless-stopped
+
+volumes:
+  flowwatch-model:

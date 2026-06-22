@@ -1,0 +1,10 @@
+.git
+.github
+**/node_modules
+model/
+training/
+docs/
+.env
+.DS_Store
+*.md
+demo.sh
