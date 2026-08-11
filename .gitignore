@@ -4,4 +4,4 @@ src/node_modules/
 src/dist/
 myvenv/
 .vscode/
-.env
+.env.DS_Store
