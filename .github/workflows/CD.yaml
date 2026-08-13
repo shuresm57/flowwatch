@@ -1,0 +1,24 @@
+name: CD
+
+# Deployer flowwatch paa VM'en vm1-flowwatch (privat adresse 10.50.0.136).
+# En sky-runner kan ikke naa den private adresse, saa vi SSH'er to gange:
+# foerst ind paa serveren, og derfra videre ind paa VM'en, hvor vi redeployer.
+# Repoet skal vaere klonet i ~/flowwatch paa VM'en.
+# Koeres manuelt efter du har gentraenet + pushet den nye model til HF.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH ind paa serveren og videre ind paa VM'en
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}     # serverens offentlige adresse (fx 185.10.223.121)
+          port: ${{ secrets.SSH_PORT }}     # port forwarded til serverens SSH
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            ssh vm1-flowwatch 'cd ~/flowwatch && git pull && docker compose pull && docker compose up -d --force-recreate'
