@@ -15,6 +15,16 @@ jobs:
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.SSH_KEY }}" > ~/.ssh/id && chmod 600 ~/.ssh/id
-          ssh -i ~/.ssh/id -o StrictHostKeyChecking=accept-new -p ${{ secrets.SSH_PORT }} \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            'ssh ${{ secrets.SSH_USER }}@${{ secrets.FLOWWATCH_SSH_HOST }} "cd ~/flowwatch && git pull && docker compose pull && docker compose up -d --force-recreate"'
+          echo "key fingerprint used:"; ssh-keygen -lf ~/.ssh/id || true
+
+          echo "::group::HOP 1  runner -> server"
+          ssh -v -i ~/.ssh/id -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
+            -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            'echo HOP1_OK on $(hostname)'
+          echo "::endgroup::"
+
+          echo "::group::HOP 2  server -> VM + deploy"
+          ssh -i ~/.ssh/id -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
+            -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            'ssh -v ${{ secrets.SSH_USER }}@${{ secrets.FLOWWATCH_SSH_HOST }} "cd ~/flowwatch && git pull && docker compose pull && docker compose up -d --force-recreate"'
+          echo "::endgroup::"
