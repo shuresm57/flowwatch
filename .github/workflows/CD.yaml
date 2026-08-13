@@ -1,10 +1,5 @@
 name: CD
 
-# Deployer flowwatch: SSH ind paa serveren, og derfra videre ind paa VM'en.
-# Trigges automatisk naar "Publish Docker image" er gaaet godt (nyt image i GHCR),
-# eller manuelt. Serveren skal selv kunne 'ssh' til VM'en, og repoet skal vaere
-# klonet i ~/flowwatch paa VM'en.
-
 on:
   workflow_dispatch:
   workflow_run:
@@ -13,7 +8,6 @@ on:
 
 jobs:
   deploy:
-    # kun hvis publish lykkedes (eller ved manuel koersel)
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
