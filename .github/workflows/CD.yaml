@@ -1,18 +1,26 @@
 name: CD
 
+# Deployer flowwatch: SSH ind paa serveren, og derfra videre ind paa VM'en.
+# Trigges automatisk naar "Publish Docker image" er gaaet godt (nyt image i GHCR),
+# eller manuelt. Serveren skal selv kunne 'ssh' til VM'en, og repoet skal vaere
+# klonet i ~/flowwatch paa VM'en.
+
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Publish Docker image"]
+    types: [completed]
 
 jobs:
   deploy:
+    # kun hvis publish lykkedes (eller ved manuel koersel)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - name: SSH ind paa serveren og videre ind paa VM'en
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SSH_HOST }}     
-          port: ${{ secrets.SSH_PORT }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          script: |
-            ssh ${{ secrets.SSH_USER }}@${{ secrets.FLOWWATCH_SSH_HOST }} 'cd ~/flowwatch && git pull && docker compose pull && docker compose up -d --force-recreate'
+      - name: Deploy flowwatch
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_KEY }}" > ~/.ssh/id && chmod 600 ~/.ssh/id
+          ssh -i ~/.ssh/id -o StrictHostKeyChecking=accept-new -p ${{ secrets.SSH_PORT }} \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            'ssh ${{ secrets.SSH_USER }}@${{ secrets.FLOWWATCH_SSH_HOST }} "cd ~/flowwatch && git pull && docker compose pull && docker compose up -d --force-recreate"'
